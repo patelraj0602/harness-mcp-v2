@@ -1,4 +1,5 @@
-// Auto-generated from https://raw.githubusercontent.com/patelraj0602/harness-schema/agents-schema/v1/pipeline.json
+// Originally auto-generated from https://raw.githubusercontent.com/patelraj0602/harness-schema/agents-schema/v1/pipeline.json
+// MANUALLY MODIFIED: Restructured definitions.pipeline → definitions["agent-pipeline"] for resource type name matching
 // @ts-nocheck
 
 const schema: Record<string, any> = {
@@ -4932,4 +4933,15 @@ const schema: Record<string, any> = {
     }
   }
 };
-export default schema;
+
+// Restructure the schema to use "agent-pipeline" as the definitions key
+// This allows harness_schema tool to find definitions by resource_type="agent-pipeline"
+const restructuredSchema = {
+  ...schema,
+  title: "agent-pipeline",
+  definitions: {
+    "agent-pipeline": schema.definitions.pipeline
+  }
+};
+
+export default restructuredSchema;

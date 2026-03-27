@@ -60,7 +60,6 @@ function inlineRefs(schema: Record<string, unknown>, node: unknown, depth = 0): 
  * Navigate into definitions by dot-separated path.
  * E.g. "trigger_source" → definitions.trigger.trigger_source
  *       "scheduled_trigger" → definitions.trigger.scheduled_trigger
- * For agent-pipeline: "Agent" → definitions.pipeline.Agent (fallback to "pipeline" key)
  */
 function navigateToPath(
   schema: Record<string, unknown>,
@@ -70,13 +69,7 @@ function navigateToPath(
   const definitions = schema.definitions as Record<string, unknown> | undefined;
   if (!definitions) return undefined;
 
-  // For agent-pipeline schema, the structure is definitions.pipeline.* (not definitions["agent-pipeline"].*)
-  // So we check both resourceType and "pipeline" as fallback
-  let resourceDefs = definitions[resourceType] as Record<string, unknown> | undefined;
-  if (!resourceDefs && definitions["pipeline"]) {
-    resourceDefs = definitions["pipeline"] as Record<string, unknown>;
-  }
-
+  const resourceDefs = definitions[resourceType] as Record<string, unknown> | undefined;
   if (!resourceDefs) return undefined;
 
   // Try direct key first
@@ -101,18 +94,10 @@ function navigateToPath(
  */
 function getSummary(schema: Record<string, unknown>, resourceType: string): Record<string, unknown> {
   const definitions = schema.definitions as Record<string, Record<string, unknown>> | undefined;
+  const sections = definitions ? Object.keys(definitions[resourceType] ?? {}) : [];
 
-  // For agent-pipeline schema, the structure is definitions.pipeline.* (not definitions["agent-pipeline"].*)
-  // So we check both resourceType and "pipeline" as fallback
-  let resourceDefs = definitions?.[resourceType] as Record<string, unknown> | undefined;
-  if (!resourceDefs && definitions?.["pipeline"]) {
-    resourceDefs = definitions["pipeline"] as Record<string, unknown>;
-  }
-
-  const sections = resourceDefs ? Object.keys(resourceDefs) : [];
-
-  // Get the root resource definition (definitions[resourceType][resourceType])
-  const rootDef = resourceDefs?.[resourceType] as Record<string, unknown> | undefined;
+  // Get the root resource definition
+  const rootDef = definitions?.[resourceType]?.[resourceType] as Record<string, unknown> | undefined;
   const properties = rootDef?.properties as Record<string, unknown> | undefined;
   const required = rootDef?.required as string[] | undefined;
 
@@ -131,11 +116,9 @@ function getSummary(schema: Record<string, unknown>, resourceType: string): Reco
 
   return {
     resource_type: resourceType,
-    fields: fields.length > 0 ? fields : undefined,
+    fields,
     available_sections: sections,
-    hint: fields.length > 0
-      ? "Use path parameter to drill into a section. E.g. path='trigger_source' for source structure, path='scheduled_trigger' for cron spec."
-      : "This schema doesn't have a root definition. Use path parameter to drill into a specific section. E.g. path='Agent' for agent structure, path='stages' for stage definitions.",
+    hint: "Use path parameter to drill into a section. E.g. path='trigger_source' for source structure, path='scheduled_trigger' for cron spec.",
   };
 }
 
@@ -147,19 +130,20 @@ export function registerSchemaTool(server: McpServer): void {
         "Fetch Harness YAML schema for a resource type. Returns the JSON Schema definition " +
         "so you know the exact body structure for harness_create/harness_update. " +
         "Use without path for a summary of fields and available sections. " +
-        "Use with path to drill into a specific section (e.g. path='scheduled_trigger' for cron trigger spec). " +
+        "Use with path to drill into a specific section (e.g. path='Agent' for agent structure, path='scheduled_trigger' for cron trigger spec). " +
         `Available schemas: ${VALID_SCHEMAS.join(", ")}.`,
       inputSchema: {
         resource_type: z
           .enum(VALID_SCHEMAS as [string, ...string[]])
-          .describe(`Schema to fetch: ${VALID_SCHEMAS.join(", ")}`),
+          .describe(`Schema to fetch. Available: ${VALID_SCHEMAS.join(", ")}`),
         path: z
           .string()
           .optional()
           .describe(
             "Dot-separated path to drill into a specific definition section. " +
-            "E.g. for 'trigger': path='trigger_source', path='scheduled_trigger', path='webhook_trigger'. " +
-            "For 'agent-pipeline': path='Agent' for agent structure, path='stages' for stages, path='steps' for steps. " +
+            "For 'agent-pipeline': path='Agent' (agent structure), path='stages' (stage definitions), path='steps' (step types). " +
+            "For 'trigger': path='trigger_source', path='scheduled_trigger', path='webhook_trigger'. " +
+            "For 'pipeline': path='stages', path='steps'. " +
             "Omit for a top-level summary showing all available sections.",
           ),
       },
@@ -182,12 +166,7 @@ export function registerSchemaTool(server: McpServer): void {
         const node = navigateToPath(schema, args.resource_type, args.path);
         if (!node) {
           const definitions = schema.definitions as Record<string, Record<string, unknown>> | undefined;
-          // For agent-pipeline, fallback to "pipeline" key
-          let resourceDefs = definitions?.[args.resource_type] as Record<string, unknown> | undefined;
-          if (!resourceDefs && definitions?.["pipeline"]) {
-            resourceDefs = definitions["pipeline"] as Record<string, unknown>;
-          }
-          const available = resourceDefs ? Object.keys(resourceDefs) : [];
+          const available = definitions ? Object.keys(definitions[args.resource_type] ?? {}) : [];
           return errorResult(
             `Path '${args.path}' not found in ${args.resource_type} schema. ` +
             `Available sections: ${available.join(", ")}`,
